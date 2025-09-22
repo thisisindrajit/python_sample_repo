@@ -8,9 +8,28 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 
-# Import utilities and configuration
-from utils import validate_email, generate_hash, sanitize_string
-from config import BUSINESS_CONSTANTS
+
+def validate_email(email: str) -> bool:
+    """Simple email validation function."""
+    return "@" in email and "." in email.split("@")[-1]
+
+
+def generate_hash(password: str) -> str:
+    """Simple hash generation for demo purposes."""
+    return f"hash_{hash(password)}"
+
+
+def sanitize_string(text: str, max_length: int = 100) -> str:
+    """Sanitize and truncate string."""
+    return text.strip()[:max_length]
+
+
+BUSINESS_CONSTANTS = {
+    'MAX_USERNAME_LENGTH': 50,
+    'MAX_PRODUCT_NAME_LENGTH': 100,
+    'MIN_PASSWORD_LENGTH': 8,
+    'DEFAULT_CURRENCY': 'USD'
+}
 
 
 class UserRole(Enum):
@@ -46,7 +65,7 @@ class User:
 
     def __post_init__(self):
         """Post-initialization validation."""
-        self.username = sanitize_string(self.username, 50)
+        self.username = sanitize_string(self.username, BUSINESS_CONSTANTS['MAX_USERNAME_LENGTH'])
         if not validate_email(self.email):
             raise ValueError(f"Invalid email address: {self.email}")
         if isinstance(self.role, str):

@@ -1,534 +1,285 @@
 """
-Main application module for the sample Python repository.
-Entry point that imports and uses all other modules to demonstrate cross-linking.
+Main application file demonstrating imports and usage of functions from other modules.
+This file contains the main application logic and imports functions from models.py and services.py.
 """
 
 import sys
-import json
-import argparse
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
-# Import all modules to demonstrate cross-linking
-from config import (
-    APP_NAME, APP_VERSION, DEBUG_MODE, API_CONFIG, DATABASE_CONFIG,
-    get_config, is_production, get_database_url
+# Import classes and functions from our modules
+from models import (
+    User, Product, Order, UserRole, OrderStatus, 
+    validate_email, generate_hash, sanitize_string, BUSINESS_CONSTANTS
 )
-from utils import (
-    validate_email, sanitize_string, generate_hash, format_currency,
-    parse_json_file, write_json_file, get_app_info
+from services import (
+    UserService, ProductService, ApplicationService,
+    format_currency, calculate_order_total, validate_user_data, 
+    process_payment, ServiceError
 )
-from models import User, Product, Order, OrderItem, UserRole, OrderStatus
-from database import DatabaseManager, DatabaseError
-from auth import AuthenticationService, AuthenticationError, PasswordValidator
-from api import APIRouter, APIRequest, APIResponse, APIError
-from services import ApplicationService, UserService, ProductService, OrderService, ServiceError
-from logger import Logger, SystemMonitor, performance_monitor, app_logger
 
 
-class SampleApplication:
+def main_application_demo():
     """
-    Main application class that orchestrates all components.
-    Demonstrates integration between all modules.
+    Main application demonstration function that uses imported classes and functions.
     """
+    print("🚀 Python Sample Repository - Main Application Demo")
+    print("=" * 60)
     
-    def __init__(self):
-        """Initialize the sample application."""
-        # Initialize logging first
-        self.logger = Logger(f"{APP_NAME}.main")
-        self.system_monitor = SystemMonitor(self.logger)
-        
-        # Initialize core components
-        self.db_manager = None
-        self.auth_service = None
-        self.app_service = None
-        self.api_router = None
-        
-        self.logger.info("Initializing Sample Application", version=APP_VERSION)
-
-    @performance_monitor("application_startup")
-    def initialize(self) -> bool:
-        """
-        Initialize all application components.
-        
-        Returns:
-            bool: True if initialization successful, False otherwise
-        """
-        try:
-            self.logger.info("Starting application initialization")
-            
-            # Initialize database
-            self.logger.info("Initializing database connection")
-            self.db_manager = DatabaseManager()
-            
-            if not self.db_manager.health_check():
-                raise RuntimeError("Database health check failed")
-            
-            # Initialize authentication service
-            self.logger.info("Initializing authentication service")
-            self.auth_service = AuthenticationService(self.db_manager)
-            
-            # Initialize application services
-            self.logger.info("Initializing application services")
-            self.app_service = ApplicationService(self.db_manager, self.auth_service)
-            
-            # Initialize API router
-            self.logger.info("Initializing API router")
-            self.api_router = APIRouter(self.db_manager, self.auth_service)
-            
-            self.logger.info("Application initialization completed successfully")
-            return True
-            
-        except Exception as e:
-            self.logger.error("Failed to initialize application", exception=e)
-            return False
-
-    def create_sample_data(self) -> Dict[str, Any]:
-        """
-        Create sample data to demonstrate all functionality.
-        
-        Returns:
-            Dict[str, Any]: Sample data creation results
-        """
-        try:
-            self.logger.info("Creating sample data")
-            results = {
-                'users': [],
-                'products': [],
-                'orders': [],
-                'errors': []
-            }
-            
-            # Create sample users
-            sample_users = [
-                ('admin_user', 'admin@example.com', 'SecurePass123!', UserRole.ADMIN),
-                ('john_doe', 'john@example.com', 'Password123!', UserRole.CUSTOMER),
-                ('jane_smith', 'jane@example.com', 'MyPass456!', UserRole.CUSTOMER),
-            ]
-            
-            for username, email, password, role in sample_users:
-                try:
-                    user_data = self.app_service.user_service.create_user_account(
-                        username, email, password, role
-                    )
-                    results['users'].append(user_data)
-                    self.logger.info(f"Created user: {username}", user_id=user_data['user']['user_id'])
-                except ServiceError as e:
-                    error_msg = f"Failed to create user {username}: {str(e)}"
-                    results['errors'].append(error_msg)
-                    self.logger.warning(error_msg)
-            
-            # Create sample products
-            sample_products = [
-                ('Laptop Pro', 'High-performance laptop for professionals', 1299.99, 'Electronics', 10),
-                ('Wireless Headphones', 'Premium noise-canceling headphones', 299.99, 'Electronics', 25),
-                ('Ergonomic Desk Chair', 'Comfortable office chair with lumbar support', 399.99, 'Furniture', 15),
-                ('Coffee Maker', 'Programmable coffee maker with thermal carafe', 89.99, 'Appliances', 30),
-                ('Python Programming Book', 'Complete guide to Python development', 49.99, 'Books', 50),
-            ]
-            
-            for name, description, price, category, stock in sample_products:
-                try:
-                    product = self.db_manager.products.create_product(
-                        name, description, price, category, stock
-                    )
-                    results['products'].append(product.get_product_info())
-                    self.logger.info(f"Created product: {name}", product_id=product.product_id)
-                except DatabaseError as e:
-                    error_msg = f"Failed to create product {name}: {str(e)}"
-                    results['errors'].append(error_msg)
-                    self.logger.warning(error_msg)
-            
-            # Create sample orders
-            if results['users'] and results['products']:
-                try:
-                    # Get a customer user
-                    customer_data = next(
-                        (u for u in results['users'] if u['user']['role'] == 'customer'), 
-                        None
-                    )
-                    
-                    if customer_data:
-                        # Recreate user object
-                        user = User(
-                            user_id=customer_data['user']['user_id'],
-                            username=customer_data['user']['username'],
-                            email=customer_data['user']['email'],
-                            role=UserRole(customer_data['user']['role'])
-                        )
-                        
-                        # Create order
-                        order = self.app_service.order_service.create_shopping_cart(user)
-                        
-                        # Add some products to the order
-                        for product_info in results['products'][:2]:  # Add first 2 products
-                            add_result = self.app_service.order_service.add_item_to_cart(
-                                order.order_id, product_info['product_id'], 2
-                            )
-                            if not add_result['success']:
-                                results['errors'].append(add_result['message'])
-                        
-                        # Get updated order
-                        order = self.db_manager.orders.get_order_by_id(order.order_id)
-                        if order:
-                            results['orders'].append(order.get_order_summary())
-                            self.logger.info(f"Created order: {order.order_id}", 
-                                           customer_id=user.user_id, 
-                                           total=order.get_total())
-                
-                except Exception as e:
-                    error_msg = f"Failed to create sample order: {str(e)}"
-                    results['errors'].append(error_msg)
-                    self.logger.warning(error_msg)
-            
-            self.logger.info("Sample data creation completed", 
-                           users_created=len(results['users']),
-                           products_created=len(results['products']),
-                           orders_created=len(results['orders']),
-                           errors=len(results['errors']))
-            
-            return results
-            
-        except Exception as e:
-            self.logger.error("Failed to create sample data", exception=e)
-            return {'error': str(e)}
-
-    def demonstrate_api_endpoints(self) -> Dict[str, Any]:
-        """
-        Demonstrate API functionality.
-        
-        Returns:
-            Dict[str, Any]: API demonstration results
-        """
-        try:
-            self.logger.info("Demonstrating API endpoints")
-            
-            results = {
-                'api_info': self.api_router.get_api_info(),
-                'endpoint_tests': []
-            }
-            
-            # Test user registration
-            register_request = APIRequest(
-                method='POST',
-                path='/api/users/register',
-                headers={'Content-Type': 'application/json'},
-                body={
-                    'username': 'api_test_user',
-                    'email': 'apitest@example.com',
-                    'password': 'TestPass123!',
-                    'role': 'customer'
-                },
-                query_params={}
-            )
-            
-            try:
-                response = self.api_router.handle_request(register_request)
-                results['endpoint_tests'].append({
-                    'endpoint': 'POST /api/users/register',
-                    'status': 'success',
-                    'status_code': response.status_code,
-                    'response_preview': str(response.body)[:200] + '...' if len(str(response.body)) > 200 else str(response.body)
-                })
-            except APIError as e:
-                results['endpoint_tests'].append({
-                    'endpoint': 'POST /api/users/register',
-                    'status': 'error',
-                    'error': str(e),
-                    'status_code': e.status_code
-                })
-            
-            # Test user login
-            login_request = APIRequest(
-                method='POST',
-                path='/api/users/login',
-                headers={'Content-Type': 'application/json'},
-                body={
-                    'email': 'apitest@example.com',
-                    'password': 'TestPass123!'
-                },
-                query_params={}
-            )
-            
-            try:
-                response = self.api_router.handle_request(login_request)
-                results['endpoint_tests'].append({
-                    'endpoint': 'POST /api/users/login',
-                    'status': 'success',
-                    'status_code': response.status_code,
-                    'has_token': 'token' in response.body
-                })
-                
-                # Store token for subsequent requests
-                if 'token' in response.body:
-                    token = response.body['token']
-                    
-                    # Test protected endpoint
-                    profile_request = APIRequest(
-                        method='GET',
-                        path='/api/users/profile',
-                        headers={
-                            'Content-Type': 'application/json',
-                            'Authorization': f'Bearer {token}'
-                        },
-                        body={},
-                        query_params={}
-                    )
-                    
-                    try:
-                        profile_response = self.api_router.handle_request(profile_request)
-                        results['endpoint_tests'].append({
-                            'endpoint': 'GET /api/users/profile',
-                            'status': 'success',
-                            'status_code': profile_response.status_code,
-                            'authenticated': True
-                        })
-                    except APIError as e:
-                        results['endpoint_tests'].append({
-                            'endpoint': 'GET /api/users/profile',
-                            'status': 'error',
-                            'error': str(e),
-                            'status_code': e.status_code
-                        })
-                
-            except APIError as e:
-                results['endpoint_tests'].append({
-                    'endpoint': 'POST /api/users/login',
-                    'status': 'error',
-                    'error': str(e),
-                    'status_code': e.status_code
-                })
-            
-            self.logger.info("API endpoint demonstration completed", 
-                           tests_run=len(results['endpoint_tests']))
-            
-            return results
-            
-        except Exception as e:
-            self.logger.error("Failed to demonstrate API endpoints", exception=e)
-            return {'error': str(e)}
-
-    def run_system_diagnostics(self) -> Dict[str, Any]:
-        """
-        Run comprehensive system diagnostics.
-        
-        Returns:
-            Dict[str, Any]: Diagnostic results
-        """
-        try:
-            self.logger.info("Running system diagnostics")
-            
-            # Get system health
-            health_info = self.system_monitor.get_system_health()
-            
-            # Get application status
-            app_status = self.app_service.get_application_status()
-            
-            # Get service statistics
-            service_stats = self.app_service.get_service_statistics()
-            
-            # Test database connectivity
-            db_health = self.db_manager.health_check()
-            
-            # Test configuration access
-            config_test = {
-                'database_config': get_config('database'),
-                'api_config': get_config('api'),
-                'auth_config': get_config('auth'),
-                'database_url': get_database_url(),
-                'is_production': is_production()
-            }
-            
-            # Test utility functions
-            utils_test = {
-                'email_validation': validate_email('test@example.com'),
-                'currency_formatting': format_currency(123.45),
-                'hash_generation': len(generate_hash('test_data')) > 0,
-                'app_info': get_app_info()
-            }
-            
-            return {
-                'system_health': health_info,
-                'application_status': app_status,
-                'service_statistics': service_stats,
-                'database_health': db_health,
-                'configuration_test': config_test,
-                'utilities_test': utils_test,
-                'diagnostics_completed': True
-            }
-            
-        except Exception as e:
-            self.logger.error("Failed to run system diagnostics", exception=e)
-            return {
-                'diagnostics_completed': False,
-                'error': str(e)
-            }
-
-    def save_results_to_file(self, results: Dict[str, Any], filename: str = 'application_results.json') -> bool:
-        """
-        Save results to a JSON file.
-        
-        Args:
-            results (Dict[str, Any]): Results to save
-            filename (str): Output filename
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        try:
-            success = write_json_file(results, filename)
-            if success:
-                self.logger.info(f"Results saved to {filename}")
-            else:
-                self.logger.error(f"Failed to save results to {filename}")
-            return success
-        except Exception as e:
-            self.logger.error(f"Error saving results to file", exception=e)
-            return False
-
-    def run_full_demonstration(self) -> Dict[str, Any]:
-        """
-        Run a complete demonstration of all functionality.
-        
-        Returns:
-            Dict[str, Any]: Complete demonstration results
-        """
-        self.logger.info("Starting full application demonstration")
-        
-        # Initialize application
-        if not self.initialize():
-            return {'error': 'Failed to initialize application'}
-        
-        # Run demonstrations
-        demo_results = {
-            'application_info': {
-                'name': APP_NAME,
-                'version': APP_VERSION,
-                'debug_mode': DEBUG_MODE,
-                'app_info': get_app_info()
-            },
-            'sample_data': self.create_sample_data(),
-            'api_demonstration': self.demonstrate_api_endpoints(),
-            'system_diagnostics': self.run_system_diagnostics(),
-            'demonstration_completed': True
-        }
-        
-        self.logger.info("Full application demonstration completed")
-        return demo_results
+    # Use imported validation functions
+    print("\n📧 Testing Email Validation (imported from models.py):")
+    test_emails = ["user@example.com", "invalid-email", "test@domain.co.uk"]
+    for email in test_emails:
+        is_valid = validate_email(email)
+        print(f"   {email}: {'✅ Valid' if is_valid else '❌ Invalid'}")
+    
+    # Use imported string sanitization
+    print("\n🧹 Testing String Sanitization (imported from models.py):")
+    test_strings = ["  Hello World!  ", "A very long string that needs truncation", "Normal text"]
+    for text in test_strings:
+        sanitized = sanitize_string(text, 20)
+        print(f"   Original: '{text}' → Sanitized: '{sanitized}'")
+    
+    # Use imported hash generation
+    print("\n🔐 Testing Hash Generation (imported from models.py):")
+    passwords = ["password123", "mysecret", "strongpassword"]
+    for pwd in passwords:
+        hashed = generate_hash(pwd)
+        print(f"   Password: '{pwd}' → Hash: '{hashed}'")
 
 
-def create_cli_parser() -> argparse.ArgumentParser:
+def demonstrate_user_workflow():
     """
-    Create command-line interface parser.
-    
-    Returns:
-        argparse.ArgumentParser: CLI parser
+    Demonstrate user workflow using imported service classes and functions.
     """
-    parser = argparse.ArgumentParser(
-        description=f'{APP_NAME} - Sample Python Repository Demonstration',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py --demo                    # Run full demonstration
-  python main.py --create-data            # Create sample data only
-  python main.py --api-test               # Test API endpoints
-  python main.py --diagnostics            # Run system diagnostics
-  python main.py --save-results demo.json # Save results to custom file
-        """
-    )
+    print("\n👤 User Workflow Demonstration")
+    print("-" * 40)
     
-    parser.add_argument('--demo', action='store_true',
-                       help='Run full demonstration')
-    parser.add_argument('--create-data', action='store_true',
-                       help='Create sample data only')
-    parser.add_argument('--api-test', action='store_true',
-                       help='Test API endpoints')
-    parser.add_argument('--diagnostics', action='store_true',
-                       help='Run system diagnostics')
-    parser.add_argument('--save-results', metavar='FILENAME',
-                       help='Save results to specified JSON file')
-    parser.add_argument('--version', action='version',
-                       version=f'{APP_NAME} {APP_VERSION}')
+    # Use imported ApplicationService class
+    app_service = ApplicationService()
     
-    return parser
-
-
-def main():
-    """Main entry point for the application."""
+    # Test user data validation (imported function)
+    print("\n🔍 Testing User Data Validation (imported from services.py):")
+    test_users = [
+        ("john_doe", "john@example.com"),
+        ("ab", "invalid-email"),  # Invalid: username too short, bad email
+        ("valid_user", "user@domain.com")
+    ]
+    
+    for username, email in test_users:
+        is_valid = validate_user_data(username, email)
+        print(f"   User: {username}, Email: {email} → {'✅ Valid' if is_valid else '❌ Invalid'}")
+    
+    # Create users using imported UserService
+    print("\n👥 Creating Users (using imported UserService class):")
     try:
-        # Parse command-line arguments
-        parser = create_cli_parser()
-        args = parser.parse_args()
+        user1 = app_service.user_service.create_user_account("alice_smith", "alice@example.com", UserRole.CUSTOMER)
+        user2 = app_service.user_service.create_user_account("bob_jones", "bob@example.com", UserRole.ADMIN)
         
-        # Initialize application
-        app = SampleApplication()
+        print(f"   Created User 1: {user1.username} (ID: {user1.user_id}, Role: {user1.role.value})")
+        print(f"   Created User 2: {user2.username} (ID: {user2.user_id}, Role: {user2.role.value})")
         
-        # Determine what to run
-        if args.demo:
-            print(f"Running full demonstration of {APP_NAME}...")
-            results = app.run_full_demonstration()
-        elif args.create_data:
-            print("Creating sample data...")
-            app.initialize()
-            results = {'sample_data': app.create_sample_data()}
-        elif args.api_test:
-            print("Testing API endpoints...")
-            app.initialize()
-            results = {'api_test': app.demonstrate_api_endpoints()}
-        elif args.diagnostics:
-            print("Running system diagnostics...")
-            app.initialize()
-            results = {'diagnostics': app.run_system_diagnostics()}
-        else:
-            # Default: run full demonstration
-            print(f"Running full demonstration of {APP_NAME}...")
-            results = app.run_full_demonstration()
-        
-        # Display results summary
-        print(f"\n{'-' * 60}")
-        print(f"DEMONSTRATION RESULTS SUMMARY")
-        print(f"{'-' * 60}")
-        
-        if 'error' in results:
-            print(f"❌ Error: {results['error']}")
-        else:
-            if 'sample_data' in results:
-                data = results['sample_data']
-                if isinstance(data, dict) and 'users' in data:
-                    print(f"✅ Sample Data: {len(data.get('users', []))} users, "
-                          f"{len(data.get('products', []))} products, "
-                          f"{len(data.get('orders', []))} orders created")
-                    if data.get('errors'):
-                        print(f"⚠️  Errors: {len(data['errors'])} issues encountered")
-            
-            if 'api_demonstration' in results:
-                api_data = results['api_demonstration']
-                if isinstance(api_data, dict) and 'endpoint_tests' in api_data:
-                    tests = api_data['endpoint_tests']
-                    successful = len([t for t in tests if t.get('status') == 'success'])
-                    print(f"✅ API Tests: {successful}/{len(tests)} endpoints tested successfully")
-            
-            if 'system_diagnostics' in results:
-                diag = results['system_diagnostics']
-                if isinstance(diag, dict) and diag.get('diagnostics_completed'):
-                    db_status = "✅" if diag.get('database_health') else "❌"
-                    print(f"{db_status} System Diagnostics: Database health check completed")
-        
-        # Save results if requested
-        if args.save_results:
-            if app.save_results_to_file(results, args.save_results):
-                print(f"📁 Results saved to: {args.save_results}")
-        
-        print(f"\n🎉 Demonstration completed! Check the logs directory for detailed logging.")
-        print(f"📊 Application: {APP_NAME} v{APP_VERSION}")
-        
-    except KeyboardInterrupt:
-        print("\n⏹️  Demonstration interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n❌ Unexpected error: {str(e)}")
-        app_logger.error("Unexpected error in main", exception=e)
-        sys.exit(1)
+    except ServiceError as e:
+        print(f"   ❌ Error creating users: {e}")
 
 
-if __name__ == '__main__':
-    main()
+def demonstrate_product_workflow():
+    """
+    Demonstrate product workflow using imported classes and functions.
+    """
+    print("\n🛍️ Product Workflow Demonstration")
+    print("-" * 40)
+    
+    # Use imported ProductService
+    product_service = ProductService()
+    
+    # Create products
+    print("\n📦 Creating Products (using imported ProductService class):")
+    products_data = [
+        {"name": "Laptop Computer", "price": 999.99, "category": "electronics"},
+        {"name": "Coffee Mug", "price": 15.50, "category": "kitchen"},
+        {"name": "Programming Book", "price": 45.00, "category": "books"}
+    ]
+    
+    created_products = []
+    for product_info in products_data:
+        product = product_service.create_product(
+            name=product_info["name"],
+            price=product_info["price"],
+            category=product_info["category"]
+        )
+        created_products.append(product)
+        
+        # Use imported format_currency function
+        formatted_price = format_currency(product.price, BUSINESS_CONSTANTS['DEFAULT_CURRENCY'])
+        print(f"   Created: {product.name} - {formatted_price} (ID: {product.product_id})")
+    
+    # Search products
+    print("\n🔍 Searching Products:")
+    search_queries = ["laptop", "coffee", "programming"]
+    for query in search_queries:
+        results = product_service.search_products(query)
+        print(f"   Search '{query}': Found {len(results)} products")
+        for product in results:
+            print(f"      - {product.name} ({product.category})")
+
+
+def demonstrate_payment_processing():
+    """
+    Demonstrate payment processing using imported functions.
+    """
+    print("\n💳 Payment Processing Demonstration")
+    print("-" * 40)
+    
+    # Use imported process_payment function
+    print("\n💰 Processing Payments (using imported process_payment function):")
+    payments = [
+        {"amount": 99.99, "method": "credit_card"},
+        {"amount": 250.00, "method": "paypal"},
+        {"amount": 15.50, "method": "debit_card"}
+    ]
+    
+    for payment in payments:
+        result = process_payment(payment["amount"], payment["method"])
+        formatted_amount = format_currency(result["amount"], result["currency"])
+        
+        print(f"   Payment: {formatted_amount} via {payment['method']}")
+        print(f"      Status: {'✅ Success' if result['success'] else '❌ Failed'}")
+        print(f"      Transaction ID: {result['transaction_id']}")
+        print(f"      Timestamp: {result['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+
+
+def demonstrate_complete_workflow():
+    """
+    Demonstrate complete workflow using imported ApplicationService.
+    """
+    print("\n🔄 Complete Workflow Demonstration")
+    print("-" * 40)
+    
+    # Use imported ApplicationService for complete workflow
+    app_service = ApplicationService()
+    
+    print("\n🚀 Running Complete User Registration with Products:")
+    
+    # Test data
+    username = "demo_user"
+    email = "demo@example.com"
+    product_data = [
+        {"name": "Wireless Headphones", "price": 89.99, "category": "electronics"},
+        {"name": "Notebook", "price": 12.99, "category": "office"}
+    ]
+    
+    # Use imported method from ApplicationService
+    result = app_service.register_user_with_products(username, email, product_data)
+    
+    if result['success']:
+        print(f"   ✅ {result['message']}")
+        print(f"   User Details:")
+        user_info = result['user']
+        print(f"      - ID: {user_info['user_id']}")
+        print(f"      - Username: {user_info['username']}")
+        print(f"      - Email: {user_info['email']}")
+        print(f"      - Role: {user_info['role']}")
+        
+        print(f"   Created Products:")
+        for product in result['products']:
+            print(f"      - {product['name']}: {product['formatted_price']} (ID: {product['product_id']})")
+    else:
+        print(f"   ❌ {result['message']}: {result['error']}")
+    
+    # Get application statistics using imported method
+    print("\n📊 Application Statistics (using imported get_application_stats):")
+    stats = app_service.get_application_stats()
+    print(f"   Total Users: {stats['total_users']}")
+    print(f"   Total Products: {stats['total_products']}")
+    print(f"   Business Constants: {stats['business_constants']}")
+
+
+def display_configuration():
+    """
+    Display configuration information using imported constants.
+    """
+    print("\n⚙️ Configuration Information")
+    print("-" * 40)
+    
+    # Use imported BUSINESS_CONSTANTS
+    print("\n📋 Business Constants (imported from models.py):")
+    for key, value in BUSINESS_CONSTANTS.items():
+        print(f"   {key}: {value}")
+    
+    # Use imported enums
+    print(f"\n👤 Available User Roles (imported from models.py):")
+    for role in UserRole:
+        print(f"   - {role.value}")
+    
+    print(f"\n📦 Available Order Statuses (imported from models.py):")
+    for status in OrderStatus:
+        print(f"   - {status.value}")
+
+
+def interactive_menu():
+    """
+    Interactive menu system using imported functions and classes.
+    """
+    print("\n🎯 Interactive Menu System")
+    print("-" * 40)
+    
+    while True:
+        print("\nChoose a demo to run:")
+        print("1. Email Validation & String Functions")
+        print("2. User Workflow")
+        print("3. Product Workflow")
+        print("4. Payment Processing")
+        print("5. Complete Workflow")
+        print("6. View Configuration")
+        print("7. Exit")
+        
+        try:
+            choice = input("\nEnter your choice (1-7): ").strip()
+            
+            if choice == "1":
+                main_application_demo()
+            elif choice == "2":
+                demonstrate_user_workflow()
+            elif choice == "3":
+                demonstrate_product_workflow()
+            elif choice == "4":
+                demonstrate_payment_processing()
+            elif choice == "5":
+                demonstrate_complete_workflow()
+            elif choice == "6":
+                display_configuration()
+            elif choice == "7":
+                print("\n👋 Goodbye! Thanks for trying the demo.")
+                break
+            else:
+                print("\n❌ Invalid choice. Please enter a number between 1-7.")
+                
+        except KeyboardInterrupt:
+            print("\n\n👋 Demo interrupted. Goodbye!")
+            break
+        except Exception as e:
+            print(f"\n❌ An error occurred: {e}")
+
+
+if __name__ == "__main__":
+    print("🐍 Python Sample Repository")
+    print("This application demonstrates importing classes and functions from other modules.")
+    print(f"Current Python version: {sys.version}")
+    print()
+    
+    # Check if we want to run interactive mode
+    if len(sys.argv) > 1 and sys.argv[1] == "--interactive":
+        interactive_menu()
+    else:
+        # Run all demonstrations
+        main_application_demo()
+        demonstrate_user_workflow()
+        demonstrate_product_workflow()
+        demonstrate_payment_processing()
+        demonstrate_complete_workflow()
+        display_configuration()
+        
+        print("\n" + "=" * 60)
+        print("✅ All demonstrations completed successfully!")
+        print("Run with --interactive flag for menu-driven experience.")
+        print("Example: python main.py --interactive")
